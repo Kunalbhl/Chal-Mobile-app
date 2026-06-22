@@ -47,6 +47,7 @@ import com.example.ui.theme.*
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ChaloAppMain(viewModel: ChaloViewModel) {
+    val context = LocalContext.current
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
     val cartItems by viewModel.cartItems.collectAsStateWithLifecycle()
     val activities by viewModel.allActivities.collectAsStateWithLifecycle()
@@ -185,7 +186,13 @@ fun ChaloAppMain(viewModel: ChaloViewModel) {
 
                     // Simulated live GPS toggle button
                     IconButton(
-                        onClick = { viewModel.toggleLocationPermission() },
+                        onClick = {
+                            viewModel.toggleLocationPermission()
+                            // Try to fetch location physically if granted
+                            if (viewModel.isLocationPermissionGranted) {
+                                viewModel.fetchCurrentLocation(context)
+                            }
+                        },
                         modifier = Modifier.testTag("location_permission_toggle")
                     ) {
                         Icon(
@@ -362,11 +369,11 @@ enum class HomeModule { Rides, Intercity, Food, Mart, Stays, Planner }
 fun HomeScreen(viewModel: ChaloViewModel, userEntity: UserEntity?) {
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    // Store the expanded/collapsed state for all 6 core categories on one single scrollable page
+    // Store the expanded/collapsed state for all 6 core categories
     val expandedStates = remember {
         mutableStateMapOf<HomeModule, Boolean>().apply {
-            put(HomeModule.Rides, true)
-            put(HomeModule.Food, true)
+            put(HomeModule.Rides, false)
+            put(HomeModule.Food, false)
             put(HomeModule.Mart, false)
             put(HomeModule.Intercity, false)
             put(HomeModule.Stays, false)
@@ -374,14 +381,56 @@ fun HomeScreen(viewModel: ChaloViewModel, userEntity: UserEntity?) {
         }
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 0.dp),
-        contentPadding = PaddingValues(bottom = 80.dp)
-    ) {
-        // Hero Image
-        item {
+    val activeMod = HomeModule.values().firstOrNull { expandedStates[it] == true }
+
+    if (activeMod != null) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { expandedStates[activeMod] = false }) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                val title = when (activeMod) {
+                    HomeModule.Rides -> "🚗 Cab & Rides"
+                    HomeModule.Food -> "😋 Food Delivery"
+                    HomeModule.Mart -> "🥛 Quick Mart"
+                    HomeModule.Intercity -> "🛺 Outstation"
+                    HomeModule.Stays -> "🏨 Stays"
+                    HomeModule.Planner -> "✨ AI Travel Planner"
+                }
+                Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+            HorizontalDivider(color = GlassBorder)
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                when (activeMod) {
+                    HomeModule.Rides -> RidesModuleView(viewModel)
+                    HomeModule.Food -> FoodModuleView(viewModel)
+                    HomeModule.Mart -> MartModuleView(viewModel)
+                    HomeModule.Intercity -> IntercityModuleView(viewModel)
+                    HomeModule.Stays -> StaysModuleView(viewModel)
+                    HomeModule.Planner -> TravelPlannerView(viewModel)
+                }
+                Spacer(modifier = Modifier.height(100.dp))
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 0.dp),
+            contentPadding = PaddingValues(bottom = 80.dp)
+        ) {
+            // Hero Image
+            item {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -548,148 +597,68 @@ fun HomeScreen(viewModel: ChaloViewModel, userEntity: UserEntity?) {
             }
         }
 
-        // Categories Title & Quick Controls
+        // --- CATEGORY ICONS QUICK SELECTOR (GRID) ---
         item {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Text(
-                    text = "🇮🇳 Compare & Savings Hub",
-                    fontWeight = FontWeight.Black,
-                    fontSize = 16.sp,
-                    color = Color.White
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(
-                        onClick = {
-                            HomeModule.values().forEach { mod -> expandedStates[mod] = true }
-                        },
-                        colors = ButtonDefaults.textButtonColors(contentColor = SaffronOrange)
-                    ) {
-                        Text("Expand All", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                    TextButton(
-                        onClick = {
-                            HomeModule.values().forEach { mod -> expandedStates[mod] = false }
-                        },
-                        colors = ButtonDefaults.textButtonColors(contentColor = Color.LightGray)
-                    ) {
-                        Text("Collapse All", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-
-        // --- STACKED EXPANDABLE CATEGORY CARDS INLINE ---
-        items(HomeModule.values().toList()) { mod ->
-            val isExpanded = expandedStates[mod] ?: false
-            val emoji = when (mod) {
-                HomeModule.Rides -> "🚗"
-                HomeModule.Food -> "😋"
-                HomeModule.Mart -> "🥛"
-                HomeModule.Intercity -> "🛺"
-                HomeModule.Stays -> "🏨"
-                HomeModule.Planner -> "✨"
-            }
-            val title = when (mod) {
-                HomeModule.Rides -> "Cab Price Comparisons"
-                HomeModule.Food -> "Food Price Comparisons"
-                HomeModule.Mart -> "Mart & Grocery Check"
-                HomeModule.Intercity -> "Intercity Outstations"
-                HomeModule.Stays -> "Hotel Deals & Stays"
-                HomeModule.Planner -> "AI Travel Planner"
-            }
-            val subtitle = when (mod) {
-                HomeModule.Rides -> "Compare Ola, Uber, Rapido, BluSmart prices"
-                HomeModule.Food -> "Compare Swiggy, Zomato & local menus"
-                HomeModule.Mart -> "Compare Blinkit, Zepto & Instamart essentials"
-                HomeModule.Intercity -> "Long distance outstating taxis & estimations"
-                HomeModule.Stays -> "Compare Booking.com, Agoda & Oyo Rooms"
-                HomeModule.Planner -> "Draft customized travel maps by budget"
-            }
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                    .testTag("category_card_${mod.name.lowercase()}"),
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, if (isExpanded) SaffronOrange.copy(alpha = 0.5f) else GlassBorder)
-            ) {
-                Column {
-                    // Category Header block (Click to toggle expansion)
+                val modules = HomeModule.values().toList()
+                modules.chunked(3).forEach { rowMods ->
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { expandedStates[mod] = !isExpanded }
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(if (isExpanded) SaffronOrange.copy(alpha = 0.15f) else GlassWhite, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(emoji, fontSize = 16.sp)
+                        rowMods.forEach { mod ->
+                            val emoji = when (mod) {
+                                HomeModule.Rides -> "🚗"
+                                HomeModule.Food -> "😋"
+                                HomeModule.Mart -> "🥛"
+                                HomeModule.Intercity -> "🛺"
+                                HomeModule.Stays -> "🏨"
+                                HomeModule.Planner -> "✨"
                             }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = title,
-                                    fontWeight = FontWeight.Black,
-                                    color = if (isExpanded) SaffronOrange else Color.White,
-                                    fontSize = 14.sp
-                                )
-                                Text(
-                                    text = subtitle,
-                                    color = Color.Gray,
-                                    fontSize = 10.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                            val label = when (mod) {
+                                HomeModule.Rides -> "Rides"
+                                HomeModule.Food -> "Food"
+                                HomeModule.Mart -> "Mart"
+                                HomeModule.Intercity -> "Outstation"
+                                HomeModule.Stays -> "Stays"
+                                HomeModule.Planner -> "AI Plan"
+                            }
+                            
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 4.dp)
+                                    .clickable {
+                                        HomeModule.values().forEach { m -> expandedStates[m] = (m == mod) }
+                                    }
+                                    .testTag("icon_category_${mod.name.lowercase()}"),
+                                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                                border = BorderStroke(1.dp, GlassBorder)
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                                ) {
+                                    Text(emoji, fontSize = 28.sp)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = label,
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = if (isExpanded) "Collapse" else "Expand",
-                            tint = if (isExpanded) SaffronOrange else Color.Gray,
-                            modifier = Modifier
-                                .size(24.dp)
-                                .rotate(if (isExpanded) 180f else 0f)
-                        )
-                    }
-
-                    // Collapsible detailed data block
-                    AnimatedVisibility(
-                        visible = isExpanded,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            HorizontalDivider(color = GlassBorder, modifier = Modifier.padding(bottom = 8.dp))
-                            when (mod) {
-                                HomeModule.Rides -> RidesModuleView(viewModel)
-                                HomeModule.Food -> FoodModuleView(viewModel)
-                                HomeModule.Mart -> MartModuleView(viewModel)
-                                HomeModule.Intercity -> IntercityModuleView(viewModel)
-                                HomeModule.Stays -> StaysModuleView(viewModel)
-                                HomeModule.Planner -> TravelPlannerView(viewModel)
+                        // Add empty boxes if row is not full to maintain spacing
+                        if (rowMods.size < 3) {
+                            repeat(3 - rowMods.size) {
+                                Spacer(modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
                             }
-                            Spacer(modifier = Modifier.height(6.dp))
                         }
                     }
                 }
@@ -794,6 +763,7 @@ fun HomeScreen(viewModel: ChaloViewModel, userEntity: UserEntity?) {
             }
         }
     }
+    } // this closes the else block
 }
 
 // --- RIDES COMPONENT ---
@@ -1696,451 +1666,1068 @@ fun AIAssistantScreen(viewModel: ChaloViewModel) {
     }
 }
 
-// --- SCREEN 5: ACCOUNT & PROFILE ---
+enum class AccountSubScreen {
+    LinkedPlatforms,
+    PaymentMethods,
+    AddressManagement
+}
+
 @Composable
 fun AccountScreen(
     viewModel: ChaloViewModel,
     profile: UserEntity?,
     transactions: List<WalletTransactionEntity>
 ) {
-    val coroutineScope = rememberCoroutineScope()
+    var activeSubScreen by remember { mutableStateOf<AccountSubScreen?>(null) }
+    var selectedBrandingSuggestion by remember { mutableStateOf("Golden Chakra") }
+    var brandingSuccessMessage by remember { mutableStateOf("") }
+    
+    AnimatedContent(
+        targetState = activeSubScreen,
+        transitionSpec = {
+            fadeIn(animationSpec = tween(250)) togetherWith fadeOut(animationSpec = tween(250))
+        },
+        label = "account_page_transitions"
+    ) { subScreen ->
+        when (subScreen) {
+            AccountSubScreen.LinkedPlatforms -> {
+                LinkedPlatformsSubScreen(
+                    viewModel = viewModel,
+                    profile = profile,
+                    onBack = { activeSubScreen = null }
+                )
+            }
+            AccountSubScreen.PaymentMethods -> {
+                PaymentMethodsSubScreen(
+                    viewModel = viewModel,
+                    onBack = { activeSubScreen = null }
+                )
+            }
+            AccountSubScreen.AddressManagement -> {
+                AddressManagementSubScreen(
+                    viewModel = viewModel,
+                    profile = profile,
+                    onBack = { activeSubScreen = null }
+                )
+            }
+            null -> {
+                // Main Account Hub Menu
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(16.dp).testTag("account_main_hub_column"),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    // Profile Block
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                            border = BorderStroke(1.dp, GlassBorder)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(54.dp)
+                                        .background(SaffronOrange, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = profile?.name?.firstOrNull()?.toString() ?: "C",
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        fontSize = 24.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column {
+                                    Text(profile?.name ?: "Kunal Pareek", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+                                    Text(profile?.email ?: "kunal@gmail.com", color = Color.Gray, fontSize = 12.sp)
+                                    Text(profile?.phone ?: "+91 98765 43210", color = Color.LightGray, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    item { Spacer(modifier = Modifier.height(12.dp)) }
+
+                    // Chalo Smart Wallet Block
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                            border = BorderStroke(1.dp, SavingGreen.copy(alpha = 0.3f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Chalo Smart Wallet", fontWeight = FontWeight.Bold, color = SavingGreen, fontSize = 14.sp)
+                                    Text("20 Pts = ₹1 Saved", color = Color.Gray, fontSize = 10.sp)
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(verticalAlignment = Alignment.Bottom) {
+                                    Text("${profile?.walletPoints ?: 0}", fontWeight = FontWeight.Black, color = Color.White, fontSize = 32.sp)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Points", color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp))
+
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    Text(
+                                        "≈ ₹${(profile?.walletPoints ?: 0) / 20}",
+                                        fontWeight = FontWeight.Bold,
+                                        color = SavingGreen,
+                                        fontSize = 20.sp,
+                                        modifier = Modifier.padding(bottom = 4.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text("Recent Coin Ledger", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                transactions.take(3).forEach { tx ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(tx.description, color = Color.LightGray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            text = "${if (tx.isCredit) "+" else "-"}${tx.points} Pts",
+                                            color = if (tx.isCredit) SavingGreen else SaffronOrange,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    item { Spacer(modifier = Modifier.height(12.dp)) }
+
+                    // DEVIATION COMPLIANCE - High Fidelity Isolated Detail Submenu Navigation Rows
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                            border = BorderStroke(1.dp, GlassBorder),
+                            modifier = Modifier.fillMaxWidth().testTag("subpages_navigation_card")
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("Profile Preferences Hub", fontWeight = FontWeight.Bold, color = SaffronOrange, fontSize = 14.sp)
+                                Text("Configure external APIs, payment accounts, and destination centers", color = Color.Gray, fontSize = 10.sp)
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Button 1: Manage Address Centers
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { activeSubScreen = AccountSubScreen.AddressManagement }
+                                        .padding(vertical = 12.dp)
+                                        .testTag("nav_to_address_button"),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.LocationOn, contentDescription = "Addresses", tint = SaffronOrange, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Manage Delivery Addresses", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text("Adjust primary Home, Office & Spot coordinators", color = Color.Gray, fontSize = 10.sp)
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color.White.copy(alpha = 0.05f), CircleShape)
+                                            .padding(6.dp)
+                                    ) {
+                                        Text("📍", fontSize = 10.sp)
+                                    }
+                                }
+
+                                HorizontalDivider(color = Color.DarkGray.copy(alpha = 0.4f))
+
+                                // Button 2: Manage Payment Accounts
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { activeSubScreen = AccountSubScreen.PaymentMethods }
+                                        .padding(vertical = 12.dp)
+                                        .testTag("nav_to_payments_button"),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.ShoppingCart, contentDescription = "Payments", tint = SaffronOrange, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Unified Checkout & Cards", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text("Set up standard credit cards, UPI handles & wallets", color = Color.Gray, fontSize = 10.sp)
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color.White.copy(alpha = 0.05f), CircleShape)
+                                            .padding(6.dp)
+                                    ) {
+                                        Text("💳", fontSize = 10.sp)
+                                    }
+                                }
+
+                                HorizontalDivider(color = Color.DarkGray.copy(alpha = 0.4f))
+
+                                // Button 3: Manage Connected Platforms
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { activeSubScreen = AccountSubScreen.LinkedPlatforms }
+                                        .padding(vertical = 12.dp)
+                                        .testTag("nav_to_platforms_button"),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Settings, contentDescription = "Linked Platforms", tint = SaffronOrange, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Linked Accounts", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text("Manage active linked accounts like Uber, Ola, Swiggy, etc.", color = Color.Gray, fontSize = 10.sp)
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color.White.copy(alpha = 0.05f), CircleShape)
+                                            .padding(6.dp)
+                                    ) {
+                                        Text("🔗", fontSize = 10.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    item { Spacer(modifier = Modifier.height(12.dp)) }
+
+                    // App Sorting Optimizations Card
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                            border = BorderStroke(1.dp, GlassBorder)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("Super App Optimizer Mode", fontWeight = FontWeight.Bold, color = SaffronOrange, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                val modes = listOf("Cheapest First", "Fastest First", "Best Rated", "AI Recommended")
+                                val currentMode = profile?.preferencesJson?.substringAfter("\"Mode\":\"")?.substringBefore("\"") ?: "AI Recommended"
+                                modes.forEach { mode ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { viewModel.changePreferenceMode(mode) }
+                                            .padding(vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(mode, color = Color.White, fontSize = 13.sp)
+                                        RadioButton(
+                                            selected = currentMode == mode,
+                                            onClick = { viewModel.changePreferenceMode(mode) },
+                                            colors = RadioButtonDefaults.colors(selectedColor = SaffronOrange)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    item { Spacer(modifier = Modifier.height(12.dp)) }
+
+                    // Onboarding Tutorial Options Card
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                            border = BorderStroke(1.dp, GlassBorder),
+                            modifier = Modifier.fillMaxWidth().testTag("onboarding_replay_card")
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("App Onboarding & Help", fontWeight = FontWeight.Bold, color = SaffronOrange, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Re-experience the feature introductions anytime", color = Color.Gray, fontSize = 11.sp)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                
+                                Button(
+                                    onClick = { viewModel.startOnboarding() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = SaffronOrange),
+                                    modifier = Modifier.fillMaxWidth().testTag("replay_onboarding_button"),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = "", tint = Color.White, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Replay Application Intro Tour", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Sub-Screen A: Linked Platforms Hub detail page (relocated here)
+@Composable
+fun LinkedPlatformsSubScreen(
+    viewModel: ChaloViewModel,
+    profile: UserEntity?,
+    onBack: () -> Unit
+) {
     var portalQuery by remember { mutableStateOf("") }
     var lastSuccessMessage by remember { mutableStateOf("") }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        contentPadding = PaddingValues(bottom = 80.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .testTag("linked_platforms_subscreen_col")
     ) {
-        item {
-            // Profile block
-            Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, GlassBorder)
+        // Upper back navigation bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(Color.White.copy(alpha = 0.05f), CircleShape)
+                    .testTag("platforms_back_button")
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = SaffronOrange, modifier = Modifier.size(18.dp))
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text("Linked Accounts", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
+                Text("Manage links for Uber, Ola, Swiggy, and other platforms", color = Color.Gray, fontSize = 10.sp)
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                    border = BorderStroke(1.dp, GlassBorder),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp)
-                            .background(SaffronOrange, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = profile?.name?.firstOrNull()?.toString() ?: "C",
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            fontSize = 24.sp
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Search Integrated Providers", fontWeight = FontWeight.Bold, color = SaffronOrange, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Filters active ONDC direct delivery segments", color = Color.Gray, fontSize = 10.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        WebSearchFilterField(
+                            query = portalQuery,
+                            onQueryChange = { portalQuery = it }
                         )
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(profile?.name ?: "Kunal Pareek", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
-                        Text(profile?.email ?: "kunal@gmail.com", color = Color.Gray, fontSize = 12.sp)
-                        Text(profile?.phone ?: "+91 98765 43210", color = Color.LightGray, fontSize = 11.sp)
-                    }
-                }
-            }
-        }
 
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-
-        // Chalo Wallet
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, SavingGreen.copy(alpha = 0.3f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Chalo Smart Wallet", fontWeight = FontWeight.Bold, color = SavingGreen, fontSize = 14.sp)
-                        Text("20 Pts = ₹1 Saved", color = Color.Gray, fontSize = 10.sp)
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text("${profile?.walletPoints ?: 0}", fontWeight = FontWeight.Black, color = Color.White, fontSize = 32.sp)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Points", color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp))
-
-                        Spacer(modifier = Modifier.weight(1f))
-                        Text(
-                            "≈ ₹${(profile?.walletPoints ?: 0) / 20}",
-                            fontWeight = FontWeight.Bold,
-                            color = SavingGreen,
-                            fontSize = 20.sp,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("Recent Coin Ledger", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    transactions.take(3).forEach { tx ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        // Unified local re-auth success animation
+                        AnimatedVisibility(
+                            visible = lastSuccessMessage.isNotEmpty(),
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
                         ) {
-                            Text(tx.description, color = Color.LightGray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                text = "${if (tx.isCredit) "+" else "-"}${tx.points} Pts",
-                                color = if (tx.isCredit) SavingGreen else SaffronOrange,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-
-        // Connected app status toggles - High fidelity Category-wise Account Settings Hub
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, GlassBorder),
-                modifier = Modifier.fillMaxWidth().testTag("third_party_portals_card")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    // Header Block
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Linked Platforms Hub", fontWeight = FontWeight.Bold, color = SaffronOrange, fontSize = 14.sp)
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text("Manage third-party tokens & active sessions", color = Color.Gray, fontSize = 10.sp)
-                        }
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings",
-                            tint = SaffronOrange,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Local Portal Search Filter
-                    OutlinedTextField(
-                        value = portalQuery,
-                        onValueChange = { portalQuery = it },
-                        placeholder = { Text("Search integrated platforms...", fontSize = 12.sp, color = Color.Gray) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp)
-                            .testTag("portal_search_field"),
-                        shape = RoundedCornerShape(10.dp),
-                        leadingIcon = {
-                            Icon(Icons.Default.Search, contentDescription = "Search", tint = SaffronOrange, modifier = Modifier.size(16.dp))
-                        },
-                        trailingIcon = {
-                            if (portalQuery.isNotEmpty()) {
-                                IconButton(onClick = { portalQuery = "" }, modifier = Modifier.size(16.dp)) {
-                                    Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color.Gray, modifier = Modifier.size(14.dp))
-                                }
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = SaffronOrange,
-                            focusedContainerColor = Color.Black.copy(alpha = 0.15f),
-                            unfocusedContainerColor = Color.Black.copy(alpha = 0.15f),
-                            unfocusedBorderColor = Color.DarkGray,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        singleLine = true
-                    )
-
-                    // Unified local feedback animated banner inside the card
-                    AnimatedVisibility(
-                        visible = lastSuccessMessage.isNotEmpty(),
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
-                    ) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E3A20)),
-                            border = BorderStroke(1.dp, SavingGreen.copy(alpha = 0.6f)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp)
-                                .testTag("reauth_success_banner")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E3A20)),
+                                border = BorderStroke(1.dp, SavingGreen.copy(alpha = 0.6f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp)
                             ) {
-                                Icon(Icons.Default.Check, contentDescription = "Success", tint = SavingGreen, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = lastSuccessMessage,
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                IconButton(
-                                    onClick = { lastSuccessMessage = "" },
-                                    modifier = Modifier.size(18.dp)
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.LightGray, modifier = Modifier.size(12.dp))
+                                    Icon(Icons.Default.Check, contentDescription = "Success", tint = SavingGreen, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = lastSuccessMessage,
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { lastSuccessMessage = "" },
+                                        modifier = Modifier.size(18.dp)
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.LightGray, modifier = Modifier.size(12.dp))
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    // Defined list of categories & integrated third-party platforms
-                    val categoriesWithApps = listOf(
-                        "🚕 Rides & Cab Portals" to listOf("Uber", "Ola", "Rapido", "BluSmart"),
-                        "🍔 Food & Restaurants" to listOf("Swiggy", "Zomato", "EatSure", "ONDC Food"),
-                        "🥛 Grocery & Quick Commerce" to listOf("Blinkit", "Zepto", "Instamart", "BigBasket"),
-                        "🏨 Hotels & Lodging" to listOf("Booking", "Agoda", "Oyo Rooms", "MakeMyTrip")
-                    )
+                        val categoriesWithApps = listOf(
+                            "🚕 Rides & Cab Portals" to listOf("Uber", "Ola", "Rapido", "BluSmart"),
+                            "🍔 Food & Restaurants" to listOf("Swiggy", "Zomato", "EatSure", "ONDC Food"),
+                            "🥛 Grocery & Quick Commerce" to listOf("Blinkit", "Zepto", "Instamart", "BigBasket"),
+                            "🏨 Hotels & Lodging" to listOf("Booking", "Agoda", "Oyo Rooms", "MakeMyTrip")
+                        )
 
-                    // Apply the reactive search query filter
-                    val filteredCategories = categoriesWithApps.map { (catName, apps) ->
-                        catName to apps.filter { app ->
-                            app.lowercase().contains(portalQuery.lowercase()) ||
-                                    catName.lowercase().contains(portalQuery.lowercase())
-                        }
-                    }.filter { (_, apps) -> apps.isNotEmpty() }
+                        val filteredCategories = categoriesWithApps.map { (catName, apps) ->
+                            catName to apps.filter { app ->
+                                app.lowercase().contains(portalQuery.lowercase()) ||
+                                        catName.lowercase().contains(portalQuery.lowercase())
+                            }
+                        }.filter { (_, apps) -> apps.isNotEmpty() }
 
-                    if (filteredCategories.isEmpty()) {
-                        // Helpful interactive Empty state
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(Icons.Default.Warning, contentDescription = "", tint = Color.Gray, modifier = Modifier.size(32.dp))
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("No portal matches that search", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            Text("Integrations are updated weekly via ONDC direct integrations.", color = Color.DarkGray, fontSize = 9.sp, textAlign = TextAlign.Center)
-                        }
-                    } else {
-                        filteredCategories.forEach { (catName, appsInCat) ->
-                            Text(
-                                text = catName,
-                                fontWeight = FontWeight.Bold,
-                                color = SaffronOrange,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
-                            )
+                        if (filteredCategories.isEmpty()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text("No integrations match", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            filteredCategories.forEach { (catName, appsInCat) ->
+                                Text(
+                                    text = catName,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SaffronOrange,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
+                                )
 
-                            appsInCat.forEach { app ->
-                                val isConnected = profile?.connectedAccountsJson?.contains("\"$app\":true") == true
-                                val isReauthorizing = viewModel.reauthorizingApps[app] == true
+                                appsInCat.forEach { app ->
+                                    val isConnected = profile?.connectedAccountsJson?.contains("\"$app\":true") == true
+                                    val isReauthorizing = viewModel.reauthorizingApps[app] == true
 
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.02f)),
-                                    border = BorderStroke(0.5.dp, GlassBorder)
-                                ) {
-                                    Column(modifier = Modifier.padding(10.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(app, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                                // Dynamic authorization details & sync states
-                                                Text(
-                                                    text = if (isConnected) "Session active • Last sync: Just now" else "Token expired • Auth required",
-                                                    color = Color.Gray,
-                                                    fontSize = 10.sp
-                                                )
-                                            }
-
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.02f)),
+                                        border = BorderStroke(0.5.dp, GlassBorder)
+                                    ) {
+                                        Column(modifier = Modifier.padding(10.dp)) {
                                             Row(
+                                                modifier = Modifier.fillMaxWidth(),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
-                                                // Connection status capsule
-                                                Box(
-                                                    modifier = Modifier
-                                                        .background(
-                                                            color = if (isConnected) SavingGreen.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f),
-                                                            shape = RoundedCornerShape(6.dp)
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(app, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    Text(
+                                                        text = if (isConnected) "Session Active • Encrypted Link" else "Token Expired • Inactive",
+                                                        color = Color.Gray,
+                                                        fontSize = 10.sp
+                                                    )
+                                                }
+
+                                                if (isReauthorizing) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        CircularProgressIndicator(
+                                                            color = SaffronOrange,
+                                                            strokeWidth = 1.5.dp,
+                                                            modifier = Modifier.size(14.dp)
                                                         )
-                                                        .border(
-                                                            width = 0.5.dp,
-                                                            color = if (isConnected) SavingGreen else Color.Gray.copy(alpha = 0.4f),
-                                                            shape = RoundedCornerShape(6.dp)
-                                                        )
-                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                ) {
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("Linking...", color = SaffronOrange, fontSize = 12.sp)
+                                                    }
+                                                } else {
+                                                    Button(
+                                                        onClick = {
+                                                            if (isConnected) {
+                                                                viewModel.toggleConnectedAccount(app)
+                                                                lastSuccessMessage = "Unlinked $app successfully."
+                                                            } else {
+                                                                viewModel.reauthorizeAccount(app) // Will wait mock delay and then toggle
+                                                                // viewModel.toggleConnectedAccount(app) will happen after delay
+                                                                lastSuccessMessage = "Successfully connected $app! Shared wallet sync active."
+                                                            }
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = if (isConnected) Color.DarkGray else SaffronOrange,
+                                                            contentColor = Color.White
+                                                        ),
+                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                                        shape = RoundedCornerShape(8.dp)
                                                     ) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(5.dp)
-                                                                .background(
-                                                                    color = if (isConnected) SavingGreen else Color.Gray,
-                                                                    shape = CircleShape
-                                                                )
-                                                        )
-                                                        Text(
-                                                            text = if (isConnected) "Active" else "Linked Off",
-                                                            color = if (isConnected) SavingGreen else Color.LightGray,
-                                                            fontSize = 9.sp,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
+                                                        Text(if (isConnected) "Unlink" else "Link", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                                     }
                                                 }
-
-                                                // Switch for master configuration toggle
-                                                Switch(
-                                                    checked = isConnected,
-                                                    onCheckedChange = { viewModel.toggleConnectedAccount(app) },
-                                                    colors = SwitchDefaults.colors(
-                                                        checkedThumbColor = Color.White,
-                                                        checkedTrackColor = SavingGreen,
-                                                        uncheckedThumbColor = Color.LightGray,
-                                                        uncheckedTrackColor = Color.DarkGray
-                                                    ),
-                                                    modifier = Modifier.scale(0.8f)
-                                                )
                                             }
-                                        }
 
-                                        Spacer(modifier = Modifier.height(6.dp))
+                                            Spacer(modifier = Modifier.height(6.dp))
 
-                                        // Beautiful dedicated One-Click Re-authorize button with local loading state and toast feedback
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
                                             Text(
-                                                text = "Auth-Type: OAuth 2.0 (Direct)",
-                                                fontSize = 9.sp,
-                                                color = Color.DarkGray,
-                                                fontWeight = FontWeight.Medium
+                                                text = "OAuth 2.0 (Token Auth)",
+                                                fontSize = 8.sp,
+                                                color = Color.DarkGray
                                             )
-
-                                            if (isReauthorizing) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    CircularProgressIndicator(
-                                                        color = SaffronOrange,
-                                                        strokeWidth = 1.5.dp,
-                                                        modifier = Modifier.size(12.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Text("Handshaking...", color = SaffronOrange, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                                }
-                                            } else {
-                                                TextButton(
-                                                    onClick = {
-                                                        // Instantly launch re-authorization routine
-                                                        viewModel.reauthorizeAccount(app)
-                                                        // Setup local notification success feedback message
-                                                        lastSuccessMessage = "256-bit secure re-authorization handshake completed for $app! Sync token active."
-                                                    },
-                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                                    modifier = Modifier.height(28.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Refresh,
-                                                        contentDescription = "Reauthorize",
-                                                        tint = SaffronOrange,
-                                                        modifier = Modifier.size(12.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text(
-                                                        text = "One-Click Re-auth",
-                                                        color = SaffronOrange,
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.ExtraBold
-                                                    )
-                                                }
-                                            }
                                         }
                                     }
                                 }
                             }
-                            if (catName != filteredCategories.last().first) {
-                                Spacer(modifier = Modifier.height(6.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun WebSearchFilterField(
+    query: String,
+    onQueryChange: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        placeholder = { Text("Filter integrated portals...", fontSize = 11.sp, color = Color.Gray) },
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        shape = RoundedCornerShape(10.dp),
+        leadingIcon = {
+            Icon(Icons.Default.Search, contentDescription = "Search", tint = SaffronOrange, modifier = Modifier.size(14.dp))
+        },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(14.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color.Gray, modifier = Modifier.size(12.dp))
+                }
+            }
+        },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = SaffronOrange,
+            focusedContainerColor = Color.Black.copy(alpha = 0.15f),
+            unfocusedContainerColor = Color.Black.copy(alpha = 0.15f),
+            unfocusedBorderColor = Color.DarkGray,
+            focusedTextColor = Color.White,
+            unfocusedTextColor = Color.White
+        ),
+        singleLine = true
+    )
+}
+
+// Sub-Screen B: Payment Methods Page (manage multiple methods & set EXACTLY 1 preference)
+@Composable
+fun PaymentMethodsSubScreen(
+    viewModel: ChaloViewModel,
+    onBack: () -> Unit
+) {
+    var showForm by remember { mutableStateOf(false) }
+    var inputName by remember { mutableStateOf("") }
+    var inputDetails by remember { mutableStateOf("") }
+    var inputEmoji by remember { mutableStateOf("💳") }
+    var successToast by remember { mutableStateOf("") }
+
+    val methods = viewModel.getPaymentMethods()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .testTag("payment_methods_subscreen_col")
+    ) {
+        // Back Header
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(Color.White.copy(alpha = 0.05f), CircleShape)
+                    .testTag("payments_back_button")
+            ) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = SaffronOrange, modifier = Modifier.size(18.dp))
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text("Payment Methods Hub", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
+                Text("Select 1 Preferred source & attach direct accounts", color = Color.Gray, fontSize = 10.sp)
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Toast banner
+            item {
+                AnimatedVisibility(
+                    visible = successToast.isNotEmpty(),
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF132B18)),
+                        border = BorderStroke(0.5.dp, SavingGreen.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = "", tint = SavingGreen, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(successToast, color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { successToast = "" }, modifier = Modifier.size(18.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "", tint = Color.LightGray, modifier = Modifier.size(12.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Methods List
+            items(methods.size) { idx ->
+                val pm = methods[idx]
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("payment_method_card_$idx"),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (pm.isPreferred) SaffronOrange.copy(alpha = 0.07f) else SurfaceDark
+                    ),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = if (pm.isPreferred) SaffronOrange else GlassBorder
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Emoji Badge
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .background(Color.White.copy(alpha = 0.05f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(pm.iconEmoji, fontSize = 18.sp)
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(pm.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(pm.details, color = Color.Gray, fontSize = 11.sp)
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Selection Action Button
+                        if (pm.isPreferred) {
+                            Box(
+                                modifier = Modifier
+                                    .background(SavingGreen.copy(alpha = 0.15f), RoundedCornerShape(10.dp))
+                                    .border(0.5.dp, SavingGreen, RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    .testTag("preferred_badge_$idx")
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Check, contentDescription = "", tint = SavingGreen, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("PREFERRED", color = SavingGreen, fontWeight = FontWeight.Black, fontSize = 8.sp)
+                                }
+                            }
+                        } else {
+                            TextButton(
+                                onClick = {
+                                    viewModel.setPreferredPaymentMethod(idx)
+                                    successToast = "Preference set to: ${pm.name}."
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp).testTag("select_preferred_payment_$idx")
+                            ) {
+                                Text("Set Pref", color = SaffronOrange, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        // Delete button
+                        IconButton(
+                            onClick = {
+                                val deletedName = pm.name
+                                viewModel.deletePaymentMethod(idx)
+                                successToast = "Account: $deletedName deleted successfully."
+                            },
+                            modifier = Modifier.size(24.dp).testTag("delete_payment_$idx")
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                }
+            }
+
+            // Collapsible Link Button & Form Form Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp).testTag("add_payment_card"),
+                    colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                    border = BorderStroke(1.dp, GlassBorder)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { showForm = !showForm },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Link New Source", fontWeight = FontWeight.Bold, color = SaffronOrange, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Badge(containerColor = SaffronOrange.copy(alpha = 0.2f)) {
+                                    Text("SECURE", color = SaffronOrange, fontSize = 7.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp))
+                                }
+                            }
+                            Icon(
+                                imageVector = if (showForm) Icons.Default.Close else Icons.Default.Add,
+                                contentDescription = "Toggle add form",
+                                tint = SaffronOrange,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        if (showForm) {
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            OutlinedTextField(
+                                value = inputName,
+                                onValueChange = { inputName = it },
+                                label = { Text("Account Label (e.g. SBI Credit, GPay)", fontSize = 10.sp) },
+                                modifier = Modifier.fillMaxWidth().testTag("add_payment_name_field"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = SaffronOrange,
+                                    focusedLabelColor = SaffronOrange,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            OutlinedTextField(
+                                value = inputDetails,
+                                onValueChange = { inputDetails = it },
+                                label = { Text("ID or Card Details (e.g. •••• 9811, user@oksbi)", fontSize = 10.sp) },
+                                modifier = Modifier.fillMaxWidth().testTag("add_payment_details_field"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = SaffronOrange,
+                                    focusedLabelColor = SaffronOrange,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Emoji icon picker
+                            Text("Symbol Indicator", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val emojis = listOf("💳", "🪙", "⚡", "📱", "🏦")
+                                emojis.forEach { emoji ->
+                                    val isSel = inputEmoji == emoji
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .background(
+                                                if (isSel) SaffronOrange.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.05f),
+                                                CircleShape
+                                            )
+                                            .border(
+                                                width = if (isSel) 1.dp else 0.dp,
+                                                color = if (isSel) SaffronOrange else Color.Transparent,
+                                                shape = CircleShape
+                                            )
+                                            .clickable { inputEmoji = emoji }
+                                            .testTag("emoji_picker_$emoji"),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(emoji, fontSize = 16.sp)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Button(
+                                onClick = {
+                                    if (inputName.isNotBlank() && inputDetails.isNotBlank()) {
+                                        viewModel.addPaymentMethod(inputName, inputDetails, inputEmoji)
+                                        successToast = "Linked account $inputName securely to Chalo Wallet core."
+                                        inputName = ""
+                                        inputDetails = ""
+                                        showForm = false
+                                    } else {
+                                        successToast = "Error: Input fields cannot be empty."
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = SaffronOrange),
+                                modifier = Modifier.fillMaxWidth().testTag("submit_payment_button"),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("Securely Link Source", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
 
-        item { Spacer(modifier = Modifier.height(12.dp)) }
+// Sub-Screen C: Address Management Page (manage multiple nodes & toggle 1 active preference)
+@Composable
+fun AddressManagementSubScreen(
+    viewModel: ChaloViewModel,
+    profile: UserEntity?,
+    onBack: () -> Unit
+) {
+    var showForm by remember { mutableStateOf(false) }
+    var inputLabel by remember { mutableStateOf("") }
+    var inputStreet by remember { mutableStateOf("") }
+    var actionMessage by remember { mutableStateOf("") }
 
-        // App sorting optimizations
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, GlassBorder)
+    val addresses = listAddresses(profile?.savedAddressesJson)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .testTag("address_subscreen_col")
+    ) {
+        // Back Header
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(Color.White.copy(alpha = 0.05f), CircleShape)
+                    .testTag("addresses_back_button")
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Super App Optimizer Mode", fontWeight = FontWeight.Bold, color = SaffronOrange, fontSize = 13.sp)
-                    Spacer(modifier = Modifier.height(12.dp))
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = SaffronOrange, modifier = Modifier.size(18.dp))
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text("Saved Delivery Spots", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
+                Text("Select active coordinates & manage navigation points", color = Color.Gray, fontSize = 10.sp)
+            }
+        }
 
-                    val modes = listOf("Cheapest First", "Fastest First", "Best Rated", "AI Recommended")
-                    val currentMode = profile?.preferencesJson?.substringAfter("\"Mode\":\"")?.substringBefore("\"") ?: "AI Recommended"
-                    modes.forEach { mode ->
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Toast banner
+            item {
+                AnimatedVisibility(
+                    visible = actionMessage.isNotEmpty(),
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF132B18)),
+                        border = BorderStroke(0.5.dp, SavingGreen.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                    ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { viewModel.changePreferenceMode(mode) }
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(mode, color = Color.White, fontSize = 13.sp)
-                            RadioButton(
-                                selected = currentMode == mode,
-                                onClick = { viewModel.changePreferenceMode(mode) },
-                                colors = RadioButtonDefaults.colors(selectedColor = SaffronOrange)
-                            )
+                            Icon(Icons.Default.Check, contentDescription = "", tint = SavingGreen, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(actionMessage, color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { actionMessage = "" }, modifier = Modifier.size(18.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "", tint = Color.LightGray, modifier = Modifier.size(12.dp))
+                            }
                         }
                     }
                 }
             }
-        }
 
-        item { Spacer(modifier = Modifier.height(12.dp)) }
+            // Addresses list
+            items(addresses.size) { idx ->
+                val (label, streetValue) = addresses[idx]
+                val isPref = streetValue.trim() == viewModel.currentAddress.trim()
 
-        // Tutorial Options
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, GlassBorder),
-                modifier = Modifier.fillMaxWidth().testTag("onboarding_replay_card")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("App Onboarding & Help", fontWeight = FontWeight.Bold, color = SaffronOrange, fontSize = 13.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Re-experience the feature introductions anytime", color = Color.Gray, fontSize = 11.sp)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    Button(
-                        onClick = { viewModel.startOnboarding() },
-                        colors = ButtonDefaults.buttonColors(containerColor = SaffronOrange),
-                        modifier = Modifier.fillMaxWidth().testTag("replay_onboarding_button"),
-                        shape = RoundedCornerShape(12.dp)
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("address_row_card_$idx"),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isPref) SaffronOrange.copy(alpha = 0.07f) else SurfaceDark
+                    ),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = if (isPref) SaffronOrange else GlassBorder
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "", tint = Color.White, modifier = Modifier.size(16.dp))
+                        // Location pin indicator
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(
+                                    if (isPref) SaffronOrange.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.05f),
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = "",
+                                tint = if (isPref) SaffronOrange else Color.Gray,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                val emoji = when (label.lowercase()) {
+                                    "home" -> "🏠"
+                                    "work", "office" -> "💼"
+                                    "hotel" -> "🏨"
+                                    else -> "📍"
+                                }
+                                Text(emoji, fontSize = 11.sp)
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(streetValue, color = Color.Gray, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Replay Application Intro Tour", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+
+                        // Selection Action Button
+                        if (isPref) {
+                            Box(
+                                modifier = Modifier
+                                    .background(SavingGreen.copy(alpha = 0.15f), RoundedCornerShape(10.dp))
+                                    .border(0.5.dp, SavingGreen, RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    .testTag("active_address_badge_$idx")
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Check, contentDescription = "", tint = SavingGreen, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("ACTIVE", color = SavingGreen, fontWeight = FontWeight.Black, fontSize = 8.sp)
+                                }
+                            }
+                        } else {
+                            TextButton(
+                                onClick = {
+                                    viewModel.setPreferredAddressFromList(idx)
+                                    actionMessage = "Primary checkout point set to $label."
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp).testTag("select_preferred_address_$idx")
+                            ) {
+                                Text("Map Active", color = SaffronOrange, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        // Delete button
+                        IconButton(
+                            onClick = {
+                                viewModel.deleteSavedAddress(idx)
+                                actionMessage = "Location $label removed safely."
+                            },
+                            modifier = Modifier.size(24.dp).testTag("delete_address_$idx")
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                }
+            }
+
+            // Link Location Form Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp).testTag("add_address_card"),
+                    colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                    border = BorderStroke(1.dp, GlassBorder)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { showForm = !showForm },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Map New Delivery Hub", fontWeight = FontWeight.Bold, color = SaffronOrange, fontSize = 13.sp)
+                            Icon(
+                                imageVector = if (showForm) Icons.Default.Close else Icons.Default.Add,
+                                contentDescription = "Toggle add address form",
+                                tint = SaffronOrange,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        if (showForm) {
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            OutlinedTextField(
+                                value = inputLabel,
+                                onValueChange = { inputLabel = it },
+                                label = { Text("Spot Label (e.g. Gym, Friend's Place)", fontSize = 10.sp) },
+                                modifier = Modifier.fillMaxWidth().testTag("add_address_label_field"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = SaffronOrange,
+                                    focusedLabelColor = SaffronOrange,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            OutlinedTextField(
+                                value = inputStreet,
+                                onValueChange = { inputStreet = it },
+                                label = { Text("Exact Physical Address", fontSize = 10.sp) },
+                                modifier = Modifier.fillMaxWidth().testTag("add_address_street_field"),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = SaffronOrange,
+                                    focusedLabelColor = SaffronOrange,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Button(
+                                onClick = {
+                                    if (inputLabel.isNotBlank() && inputStreet.isNotBlank()) {
+                                        viewModel.addSavedAddress(inputLabel, inputStreet)
+                                        actionMessage = "Added spot $inputLabel successfully to database."
+                                        inputLabel = ""
+                                        inputStreet = ""
+                                        showForm = false
+                                    } else {
+                                        actionMessage = "Error: Fields cannot be blank."
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = SaffronOrange),
+                                modifier = Modifier.fillMaxWidth().testTag("submit_address_button"),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("Locate and Save Hub", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
                     }
                 }
             }

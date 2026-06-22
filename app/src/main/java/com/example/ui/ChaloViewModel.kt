@@ -394,6 +394,24 @@ class ChaloViewModel(application: Application) : AndroidViewModel(application) {
         isLocationPermissionGranted = !isLocationPermissionGranted
     }
 
+    // Actual Google Location Service Intergration
+    @android.annotation.SuppressLint("MissingPermission")
+    fun fetchCurrentLocation(context: android.content.Context) {
+        if (!isLocationPermissionGranted) return
+        
+        val fusedLocationClient = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(context)
+        fusedLocationClient.lastLocation.addOnSuccessListener { location: android.location.Location? ->
+            if (location != null) {
+                // In a real app we'd reverse-geocode it securely, here we just show the coords
+                currentAddress = "Lat: ${location.latitude.toString().take(6)}, Lng: ${location.longitude.toString().take(6)}"
+            } else {
+                currentAddress = "Location fetched but unavailable."
+            }
+        }.addOnFailureListener {
+            currentAddress = "Failed to fetch GPS"
+        }
+    }
+
     fun setTab(index: Int) {
         activeTab = index
     }
@@ -818,4 +836,148 @@ class ChaloViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    // --- Dynamic Address & Payment Management Systems ---
+
+    fun getPaymentMethods(): List<PaymentMethod> {
+        val profile = userProfile.value
+        val json = profile?.preferencesJson ?: ""
+        val rawString = if (json.contains("\"payments\":\"")) {
+            json.substringAfter("\"payments\":\"").substringBefore("\"")
+        } else {
+            "Chalo Pay Wallet:kunal@chalo:true:🪙;HDFC CC:•••• 4321:false:💳;Google Pay:kunal@okhdfc:false:⚡;PayTM Wallet:9876543212:false:📱"
+        }
+        if (rawString.isBlank()) return emptyList()
+        return try {
+            rawString.split(";").filter { it.isNotBlank() }.map {
+                val parts = it.split(":")
+                PaymentMethod(
+                    name = parts.getOrNull(0) ?: "Card",
+                    details = parts.getOrNull(1) ?: "",
+                    isPreferred = parts.getOrNull(2) == "true",
+                    iconEmoji = parts.getOrNull(3) ?: "💳"
+                )
+            }
+        } catch (e: Exception) {
+            listOf(
+                PaymentMethod("Chalo Pay Wallet", "kunal@chalo", true, "🪙"),
+                PaymentMethod("HDFC CC", "•••• 4321", false, "💳"),
+                PaymentMethod("Google Pay", "kunal@okhdfc", false, "⚡"),
+                PaymentMethod("PayTM Wallet", "9876543212", false, "📱")
+            )
+        }
+    }
+
+    fun savePaymentMethods(methods: List<PaymentMethod>) {
+        viewModelScope.launch {
+            userProfile.value?.let { profile ->
+                val json = profile.preferencesJson
+                val serialized = methods.joinToString(";") { "${it.name}:${it.details}:${it.isPreferred}:${it.iconEmoji}" }
+                val updatedJson = if (json.contains("\"payments\":\"")) {
+                    val beforePayments = json.substringBefore("\"payments\":\"")
+                    val afterPaymentsVal = json.substringAfter("\"payments\":\"")
+                    val afterPaymentsQuote = afterPaymentsVal.substringAfter("\"")
+                    beforePayments + "\"payments\":\"" + serialized + "\"" + afterPaymentsQuote
+                } else {
+                    val base = json.trim()
+                    if (base.endsWith("}")) {
+                        base.substring(0, base.length - 1) + ",\"payments\":\"" + serialized + "\"}"
+                    } else {
+                        json
+                    }
+                }
+                repository.updateProfile(profile.copy(preferencesJson = updatedJson))
+            }
+        }
+    }
+
+    fun addPaymentMethod(name: String, details: String, emoji: String) {
+        val current = getPaymentMethods().toMutableList()
+        val isPref = current.none { it.isPreferred }
+        current.add(PaymentMethod(name, details, isPref, emoji))
+        savePaymentMethods(current)
+    }
+
+    fun deletePaymentMethod(index: Int) {
+        val current = getPaymentMethods().toMutableList()
+        if (index in current.indices) {
+            val wasPreferred = current[index].isPreferred
+            current.removeAt(index)
+            if (wasPreferred && current.isNotEmpty()) {
+                current[0] = current[0].copy(isPreferred = true)
+            }
+            savePaymentMethods(current)
+        }
+    }
+
+    fun setPreferredPaymentMethod(index: Int) {
+        val current = getPaymentMethods().mapIndexed { idx, pm ->
+            pm.copy(isPreferred = idx == index)
+        }
+        savePaymentMethods(current)
+    }
+
+    fun addSavedAddress(label: String, value: String) {
+        viewModelScope.launch {
+            userProfile.value?.let { profile ->
+                val currentStr = profile.savedAddressesJson.trim()
+                val cleanValue = value.replace(";", "").replace(":", "")
+                val cleanLabel = label.replace(";", "").replace(":", "")
+                val updatedStr = if (currentStr.isBlank()) {
+                    "$cleanLabel: $cleanValue"
+                } else {
+                    "$currentStr; $cleanLabel: $cleanValue"
+                }
+                repository.updateProfile(profile.copy(savedAddressesJson = updatedStr))
+            }
+        }
+    }
+
+    fun deleteSavedAddress(index: Int) {
+        viewModelScope.launch {
+            userProfile.value?.let { profile ->
+                val currentAddresses = listAddresses(profile.savedAddressesJson).toMutableList()
+                if (index in currentAddresses.indices) {
+                    val deletedValue = currentAddresses[index].second
+                    currentAddresses.removeAt(index)
+                    
+                    val updatedStr = currentAddresses.joinToString("; ") { "${it.first}: ${it.second}" }
+                    
+                    var updatedActive = profile.currentAddress
+                    if (profile.currentAddress == deletedValue) {
+                        if (currentAddresses.isNotEmpty()) {
+                            updatedActive = currentAddresses[0].second
+                            currentAddress = updatedActive
+                        }
+                    }
+                    
+                    repository.updateProfile(profile.copy(
+                        savedAddressesJson = updatedStr,
+                        currentAddress = updatedActive
+                    ))
+                }
+            }
+        }
+    }
+
+    fun setPreferredAddressFromList(index: Int) {
+        viewModelScope.launch {
+            userProfile.value?.let { profile ->
+                val currentAddresses = listAddresses(profile.savedAddressesJson)
+                if (index in currentAddresses.indices) {
+                    val targetAddress = currentAddresses[index].second
+                    currentAddress = targetAddress
+                    repository.updateProfile(profile.copy(currentAddress = targetAddress))
+                }
+            }
+        }
+    }
 }
+
+data class PaymentMethod(
+    val name: String,
+    val details: String,
+    val isPreferred: Boolean,
+    val iconEmoji: String = "💳"
+)
+
