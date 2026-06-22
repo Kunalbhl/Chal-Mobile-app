@@ -654,10 +654,18 @@ class ChaloViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Dynamic Booking Simulators ---
 
+    var isRideBookingActive by mutableStateOf(false)
+    var activeRideOTP by mutableStateOf<String?>(null)
+    var currentBookingPlatform by mutableStateOf("")
+
     fun bookSimulatedRide(platform: String, vehicle: String, price: Double) {
         val randId = (100000..999999).random().toString()
         val timeSdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
         val timeStr = timeSdf.format(Date())
+
+        currentBookingPlatform = platform
+        isRideBookingActive = true
+        activeRideOTP = (1000..9999).random().toString()
 
         viewModelScope.launch {
             val rideAct = ActivityEntity(
@@ -677,10 +685,9 @@ class ChaloViewModel(application: Application) : AndroidViewModel(application) {
             rideProgressStatus = "Searching..."
             rideProgressDetails = "Broadcasting request to nearby $platform drivers..."
 
-            // Switch to Activity tab to witness the live progress
-            activeTab = 1
+            // Now instead of switching tab immediately, we stay to see the OTP.
+            // The overlay will close when user chooses to.
 
-            // Simulate Driver Status Updates:
             delay(3000)
             rideProgressStatus = "Arriving Soon"
             rideProgressDetails = "Driver Ramesh (White Dzire - DL1R-7489) accepted! ETA 3m. ⭐4.8"
@@ -699,16 +706,19 @@ class ChaloViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
-            delay(5000)
-            rideProgressStatus = "On Trip"
-            rideProgressDetails = "You are currently on-trip from CP to Cyber City. Share live tracking with family."
-
-            delay(6000)
-            rideProgressStatus = "Completed"
-            rideProgressDetails = "Arrived safely! Ride fee loaded. Saved ₹28 comparing with Namma Yatri."
-            repository.insertActivity(
-                rideAct.copy(status = "Completed", details = "$vehicle Cab ($platform) - CP to DLF Cyber City - DL1R-7489")
-            )
+            delay(15000) // Much longer before trip starts automatically
+            if (rideProgressStatus == "Arriving Soon") {
+                rideProgressStatus = "On Trip"
+                rideProgressDetails = "You are currently on-trip from ${ridesPickup} to ${ridesDestination}. Share live tracking with family."
+                
+                delay(6000)
+                rideProgressStatus = "Completed"
+                rideProgressDetails = "Arrived safely! Ride fee loaded. Saved ₹28 comparing with Namma Yatri."
+                repository.insertActivity(
+                    rideAct.copy(status = "Completed", details = "$vehicle Cab ($platform) - ${ridesPickup} to ${ridesDestination} - DL1R-7489")
+                )
+                isRideBookingActive = false
+            }
         }
     }
 

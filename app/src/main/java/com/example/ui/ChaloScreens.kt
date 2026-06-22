@@ -281,6 +281,9 @@ fun ChaloAppMain(viewModel: ChaloViewModel) {
             if (!viewModel.isOnboardingCompleted) {
                 OnboardingOverlay(viewModel = viewModel)
             }
+            
+            // New Ride Booking & Tracking view
+            RideBookingOverlay(viewModel = viewModel)
         }
     }
 
@@ -423,12 +426,95 @@ fun HomeScreen(viewModel: ChaloViewModel, userEntity: UserEntity?) {
             }
         }
     } else {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 0.dp),
-            contentPadding = PaddingValues(bottom = 80.dp)
-        ) {
+        var showLocationDialog by remember { mutableStateOf(false) }
+
+        if (showLocationDialog) {
+            var newLocation by remember { mutableStateOf(viewModel.currentAddress) }
+            AlertDialog(
+                onDismissRequest = { showLocationDialog = false },
+                title = { Text("Set Location", color = Color.White) },
+                text = {
+                    OutlinedTextField(
+                        value = newLocation,
+                        onValueChange = { newLocation = it },
+                        label = { Text("Enter Location") },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = SaffronOrange
+                        ),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.changeAddressAndDismiss(newLocation)
+                        showLocationDialog = false
+                    }) {
+                        Text("Save", color = SaffronOrange, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showLocationDialog = false }) {
+                        Text("Cancel", color = Color.Gray)
+                    }
+                },
+                containerColor = SurfaceDark
+            )
+        }
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f).clickable { showLocationDialog = true }
+                ) {
+                    val firstName = userEntity?.name?.split(" ")?.firstOrNull() ?: "Guest"
+                    Text(
+                        text = "Namaste, $firstName 🙏",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.LocationOn, contentDescription = "Location", tint = SaffronOrange, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = viewModel.currentAddress.ifBlank { "Fetching Current Location..." },
+                            color = Color.LightGray,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Change", tint = Color.LightGray, modifier = Modifier.size(16.dp))
+                    }
+                }
+
+                Image(
+                    painter = painterResource(id = R.drawable.chalo_logo_minimalist_1782116677450),
+                    contentDescription = "App Logo",
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .border(1.dp, GlassBorder, CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 0.dp),
+                contentPadding = PaddingValues(bottom = 80.dp)
+            ) {
             // Hero Image
             item {
             Box(
@@ -763,6 +849,7 @@ fun HomeScreen(viewModel: ChaloViewModel, userEntity: UserEntity?) {
             }
         }
     }
+        } // this closes Column
     } // this closes the else block
 }
 
@@ -782,6 +869,11 @@ fun RidesModuleView(viewModel: ChaloViewModel) {
                 onValueChange = { viewModel.ridesPickup = it },
                 label = { Text("Pickup Location") },
                 modifier = Modifier.fillMaxWidth().testTag("rides_pickup_input"),
+                trailingIcon = {
+                    IconButton(onClick = { viewModel.ridesPickup = viewModel.currentAddress.takeIf { it.isNotBlank() } ?: "Live GPS Location Selected" }) {
+                        Icon(Icons.Filled.LocationOn, contentDescription = "Current Location", tint = SaffronOrange)
+                    }
+                },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = SaffronOrange,
                     unfocusedBorderColor = Color.DarkGray,
@@ -806,6 +898,9 @@ fun RidesModuleView(viewModel: ChaloViewModel) {
                 shape = RoundedCornerShape(10.dp)
             )
 
+            Spacer(modifier = Modifier.height(12.dp))
+            MockMapView(viewModel.ridesPickup, viewModel.ridesDestination)
+            
             Spacer(modifier = Modifier.height(12.dp))
             Text("Select Vehicle Class", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(4.dp))
@@ -911,6 +1006,11 @@ fun IntercityModuleView(viewModel: ChaloViewModel) {
                     onValueChange = { viewModel.intercityFrom = it },
                     label = { Text("From") },
                     modifier = Modifier.weight(1f).padding(end = 4.dp),
+                    trailingIcon = {
+                        IconButton(onClick = { viewModel.intercityFrom = viewModel.currentAddress.takeIf { it.isNotBlank() } ?: "Live GPS Location Selected" }) {
+                            Icon(Icons.Filled.LocationOn, contentDescription = "Current Location", tint = SaffronOrange)
+                        }
+                    },
                     colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SaffronOrange)
                 )
                 OutlinedTextField(
@@ -940,6 +1040,9 @@ fun IntercityModuleView(viewModel: ChaloViewModel) {
                 )
             }
 
+            Spacer(modifier = Modifier.height(12.dp))
+            MockMapView(viewModel.intercityFrom, viewModel.intercityTo)
+            
             Spacer(modifier = Modifier.height(12.dp))
             val pCount = viewModel.intercityPassengers.toIntOrNull() ?: 1
             val recommendation = when {
@@ -2699,6 +2802,11 @@ fun AddressManagementSubScreen(
                                 onValueChange = { inputStreet = it },
                                 label = { Text("Exact Physical Address", fontSize = 10.sp) },
                                 modifier = Modifier.fillMaxWidth().testTag("add_address_street_field"),
+                                trailingIcon = {
+                                    IconButton(onClick = { inputStreet = viewModel.currentAddress.takeIf { it.isNotBlank() } ?: "Live GPS Location Selected" }) {
+                                        Icon(Icons.Filled.LocationOn, contentDescription = "Current Location", tint = SaffronOrange)
+                                    }
+                                },
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = SaffronOrange,
                                     focusedLabelColor = SaffronOrange,
@@ -3351,3 +3459,176 @@ fun ChaloRecommendationsView(
     }
 }
 
+// --- ACTUAL GOOGLE MAP VIEW ---
+@Composable
+fun MockMapView(pickup: String, destination: String) {
+    var startPos = com.google.android.gms.maps.model.LatLng(28.6139, 77.2090) // New Delhi
+    var endPos = com.google.android.gms.maps.model.LatLng(28.4595, 77.0266) // Gurugram
+    
+    // Attempt to extract lat/lng if the format matches "Lat: ..., Lng: ..."
+    try {
+        if (pickup.startsWith("Lat: ")) {
+             val parts = pickup.split(", Lng: ")
+             val lat = parts[0].replace("Lat: ", "").toDouble()
+             val lng = parts[1].toDouble()
+             startPos = com.google.android.gms.maps.model.LatLng(lat, lng)
+        }
+    } catch (e: Exception) {}
+
+    val cameraPositionState = com.google.maps.android.compose.rememberCameraPositionState {
+        position = com.google.android.gms.maps.model.CameraPosition.fromLatLngZoom(startPos, 9f)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, GlassBorder, RoundedCornerShape(12.dp))
+    ) {
+        com.google.maps.android.compose.GoogleMap(
+            modifier = Modifier.fillMaxSize(),
+            cameraPositionState = cameraPositionState,
+            properties = com.google.maps.android.compose.MapProperties(
+                isMyLocationEnabled = false,
+                mapType = com.google.maps.android.compose.MapType.NORMAL
+            ),
+            uiSettings = com.google.maps.android.compose.MapUiSettings(zoomControlsEnabled = false)
+        ) {
+            // Pickup Marker
+            com.google.maps.android.compose.MarkerComposable(
+                state = com.google.maps.android.compose.MarkerState(position = startPos),
+                title = "Pickup",
+            ) {
+                Box(
+                    modifier = Modifier.padding(bottom = 36.dp), // Lift above the point
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Filled.LocationOn, contentDescription = "Pickup", tint = SaffronOrange, modifier = Modifier.size(36.dp))
+                }
+            }
+            if (destination.isNotBlank()) {
+                com.google.maps.android.compose.Marker(
+                    state = com.google.maps.android.compose.MarkerState(position = endPos),
+                    title = "Destination",
+                    snippet = destination
+                )
+            }
+
+            // Mock nearby rides
+            val nearbyRides = listOf(
+                Pair(com.google.android.gms.maps.model.LatLng(startPos.latitude + 0.025, startPos.longitude + 0.025), "🚗 2 min"),
+                Pair(com.google.android.gms.maps.model.LatLng(startPos.latitude - 0.015, startPos.longitude + 0.020), "🛺 4 min"),
+                Pair(com.google.android.gms.maps.model.LatLng(startPos.latitude + 0.020, startPos.longitude - 0.030), "🚗 1 min"),
+                Pair(com.google.android.gms.maps.model.LatLng(startPos.latitude - 0.030, startPos.longitude - 0.010), "🏍️ 3 min")
+            )
+
+            nearbyRides.forEach { (pos, label) ->
+                com.google.maps.android.compose.MarkerComposable(
+                    state = com.google.maps.android.compose.MarkerState(position = pos)
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.8f)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.padding(4.dp)
+                    ) {
+                        Text(
+                            text = label,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Overlays
+        Column(
+            modifier = Modifier.fillMaxSize().padding(12.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Card(colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha=0.6f))) {
+                    Text("LIVE MAP", fontSize = 8.sp, color = SavingGreen, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp), fontWeight = FontWeight.Bold)
+                }
+            }
+            Card(colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha=0.7f))) {
+                Row(modifier = Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("📍", fontSize = 14.sp)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(pickup.takeIf { it.isNotBlank() } ?: "Current Location", color = Color.White, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+// --- RIDE BOOKING & OTP OVERLAY ---
+@Composable
+fun RideBookingOverlay(viewModel: ChaloViewModel) {
+    if (viewModel.isRideBookingActive) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.85f))
+                .clickable(enabled = false) {}, // Block clicks behind
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                border = BorderStroke(1.dp, SaffronOrange)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Title
+                    Text("Booking via ${viewModel.currentBookingPlatform}", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    if (viewModel.rideProgressStatus == "Searching...") {
+                        CircularProgressIndicator(color = SaffronOrange, modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(viewModel.rideProgressStatus ?: "", color = SaffronOrange, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(viewModel.rideProgressDetails ?: "", color = Color.LightGray, fontSize = 12.sp, textAlign = TextAlign.Center)
+                    } else {
+                        // Driver matched!
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("🏎️", fontSize = 48.sp)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(viewModel.rideProgressStatus ?: "", color = SavingGreen, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color.Black),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Provide this OTP to Driver", color = Color.Gray, fontSize = 10.sp)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(viewModel.activeRideOTP ?: "----", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, letterSpacing = 8.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(viewModel.rideProgressDetails ?: "", color = Color.LightGray, fontSize = 12.sp, textAlign = TextAlign.Center)
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = { viewModel.isRideBookingActive = false },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Minimize to Background", color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
