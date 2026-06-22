@@ -1,0 +1,6 @@
+{
+  "name": "Chalo",
+  "description": "AI-powered Everyday Indian Super App comparing Rides, Intercity, Food, Grocery, Stays, and featuring an AI Assistant and Smart Travel Planner.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
